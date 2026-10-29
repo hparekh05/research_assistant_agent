@@ -55,8 +55,8 @@ Open http://localhost:8501. The first build takes several minutes and needs roug
 
 1. Get the project:
    ```bash
-   git clone https://github.com/hparekh05/multi-agent-research-assistant.git
-   cd multi-agent-research-assistant
+   git clone https://github.com/hparekh05/research_assistant_agent.git
+   cd research_assistant_agent
    ```
 2. Set up Python:
    ```bash
