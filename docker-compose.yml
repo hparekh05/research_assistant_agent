@@ -1,9 +1,19 @@
-# One service. ChromaDB runs in-process (the app builds a temporary in-memory index per PDF search),
+# ChromaDB runs in-process (the app builds a temporary in-memory index per PDF search),
 # so no separate database container is needed.
 services:
   app:
     build: .
+    image: multi-agent-research-assistant-app   # shared with the eval service so only one image is stored
     env_file: .env        # ANTHROPIC_API_KEY, TAVILY_API_KEY (see .env.example). Never commit .env.
     ports:
       - "8501:8501"
     restart: unless-stopped
+
+  # Run with:  docker compose run --rm eval python eval/run_eval.py
+  eval:
+    image: multi-agent-research-assistant-app
+    env_file: .env
+    user: root
+    volumes:
+      - ./eval:/app/eval  # PDFs go in, results come out
+    profiles: ["eval"]    # never started by a plain `docker compose up`
