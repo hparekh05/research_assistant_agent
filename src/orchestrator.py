@@ -19,6 +19,14 @@ from src.mcp_client import (
     search_web_mcp,
     search_documents_mcp
 )
+from src.trace_utils import extract_trace
+from src.agent_utils import (
+    MAX_TOOL_ROUNDS,
+    has_pending_tool_calls,
+    message_text,
+    messages_for_final_answer,
+    needs_final_answer,
+)
 
 load_dotenv()
 
@@ -193,6 +201,14 @@ def create_agent():
             "sources": state.get("sources", [])
         }
 
+    def finalize_node(state: AgentState):
+        """Last, tool-free call so the user always gets an answer."""
+        response = llm.invoke(messages_for_final_answer(state["messages"]))
+        return {
+            "messages": [response],
+            "sources": state.get("sources", [])
+        }
+
     def should_continue(state: AgentState):
 
         messages = state["messages"]
@@ -203,18 +219,17 @@ def create_agent():
         tool_call_count = sum(
             1
             for message in messages
-            if hasattr(message, "tool_calls")
-            and message.tool_calls
+            if has_pending_tool_calls(message)
         )
 
-        if tool_call_count >= 4:
-            return END
+        if tool_call_count >= MAX_TOOL_ROUNDS:
+            return "finalize" if needs_final_answer(messages) else END
 
-        if (
-            hasattr(last_message, "tool_calls")
-            and last_message.tool_calls
-        ):
+        if has_pending_tool_calls(last_message):
             return "tools"
+
+        if not message_text(last_message).strip():
+            return "finalize"
 
         return END
 
@@ -230,6 +245,11 @@ def create_agent():
         tool_node
     )
 
+    graph.add_node(
+        "finalize",
+        finalize_node
+    )
+
     graph.set_entry_point("agent")
 
     graph.add_conditional_edges(
@@ -237,9 +257,12 @@ def create_agent():
         should_continue,
         {
             "tools": "tools",
+            "finalize": "finalize",
             END: END
         }
     )
+
+    graph.add_edge("finalize", END)
 
     graph.add_edge(
         "tools",
@@ -267,8 +290,15 @@ def orchestrator(
     for web and PDF research.
     """
 
-    system_message = SystemMessage(
-        content="""
+    file_names = [getattr(f, "name", "document.pdf") for f in (uploaded_files or [])]
+    upload_note = (
+        "\n\nThe user has uploaded these PDFs, which search_pdfs can search: "
+        + ", ".join(file_names) + "."
+        if file_names
+        else "\n\nNo PDFs are uploaded."
+    )
+
+    system_prompt = """
 You are an expert research analyst.
 
 You have access to two research tools through
@@ -282,9 +312,13 @@ the Model Context Protocol (MCP):
 
 Research strategy:
 
-- For factual or current questions, search the web first.
-- For document-specific questions, search the PDFs.
-- For comprehensive research, use both tools.
+- If PDFs are uploaded and the question could be answered from them, search the PDFs first and answer from them.
+- Use search_web only for current events or outside information, when the user asks for it, or when the PDFs do not contain what is needed. If PDFs are uploaded and the question is plainly about them, do not add web research.
+- If no PDFs are uploaded, use search_web for factual or current questions.
+- For comprehensive research, use both tools and keep the sources separate.
+- If a PDF search does not find the answer, rephrase with different key terms (names, numbers, section titles) instead of repeating the same query.
+- If the answer is not in the available sources, say so plainly. Do not offer loosely related figures or facts from other sources as a substitute for the missing answer.
+- Start with the answer itself. Do not comment on your own search process.
 - Cross-reference information when possible.
 - Never guess.
 - Clearly distinguish facts from analysis.
@@ -305,7 +339,8 @@ Citation requirements:
 
 
 """
-    )
+
+    system_message = SystemMessage(content=system_prompt + upload_note)
 
     messages = [system_message]
 
@@ -338,10 +373,15 @@ Citation requirements:
     )
 
 
+    # Extra fields used by the eval harness (eval/run_eval.py); the app ignores them.
+    tool_calls, contexts = extract_trace(result["messages"])
+
     return {
         "answer": answer,
         "sources": _web_sources + _pdf_sources,
         "web_sources": _web_sources.copy(),
         "pdf_sources": _pdf_sources.copy(),
-        "query": query
+        "query": query,
+        "tool_calls": tool_calls,
+        "contexts": contexts
     }
