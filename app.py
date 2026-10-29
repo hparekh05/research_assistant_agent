@@ -6,13 +6,13 @@ from src.synthesizer import synthesizer_agent_stream
 
 
 st.set_page_config(
-    page_title="Multi-Agent Research Assistant",
+    page_title="Research Assistant Agent",
     page_icon="🔍",
     layout="wide"
 )
 
 
-st.title("🔍 Multi-Agent Research Assistant")
+st.title("🔍 Research Assistant Agent")
 st.markdown("*Powered by Claude + Web Search + Document Analysis*")
 
 
@@ -133,4 +133,4 @@ if query := st.chat_input("Ask anything..."):
             st.session_state.chat_history.append(AIMessage(content=full_response))
 
 st.divider()
-st.caption("Multi-Agent Research Assistant | LangChain · LangGraph · Claude · Tavily · ChromaDB · MCP")
+st.caption("Research Assistant Agent | LangChain · LangGraph · Claude · Tavily · ChromaDB · MCP")
